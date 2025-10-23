@@ -99,24 +99,88 @@ async def create_station(
         name: Human-readable station name (must be unique)
         intent: What this station does (used for discovery and decomposition)
         action_type: Type of action - "gather" (fetch data), "process" (transform), or "execute" (take action)
-        context: Input schema - format: {"keys": {"field_name": {"type": "string", "required": true, "description": "..."}}}
-        action_config: Configuration with prompt, claude_tools, and MCP tools
-        output: Output schema - format: {"context": {"added": ["field1"], "removed": []}, "payload": {"added": ["field2"], "removed": []}}
+        context: Input schema (optional - defaults to {"keys": {}})
+        action_config: Action configuration (optional - auto-populated based on action_type if omitted)
+        output: Output schema (optional - defaults to empty added/removed lists)
         is_active: Whether station is active (default: True)
 
     Returns:
         Dictionary with created station data
+
+    Note:
+        If action_config is omitted, it will be auto-populated with the correct structure
+        for the action_type (gather needs 'sources', execute needs 'tools', process is minimal).
     """
-    # Provide sensible defaults
-    if context is None:
+    # Always provide valid context structure
+    if not context:  # Handles None and {}
         context = {"keys": {}}
-    if action_config is None:
-        action_config = {
-            "prompt": "",
-            "claude_tools": [],
-            "tools": {"mcp_servers": [], "mcp_tools": []}
-        }
-    if output is None:
+
+    # Build complete action_config based on action_type
+    # This ensures the structure matches what the database trigger expects
+    if not action_config:  # Handles None and {}
+        if action_type == "gather":
+            action_config = {
+                "prompt": "",
+                "approval_needed": False,
+                "claude_tools": [],
+                "sources": {
+                    "mcp_servers": [],
+                    "connections": [],
+                    "tables": [],
+                    "entire_databases": []
+                }
+            }
+        elif action_type == "execute":
+            action_config = {
+                "prompt": "",
+                "approval_needed": False,
+                "claude_tools": [],
+                "tools": {
+                    "mcp_servers": [],
+                    "mcp_tools": [],
+                    "entire_servers": []
+                }
+            }
+        else:  # process type
+            action_config = {
+                "prompt": "",
+                "approval_needed": False,
+                "claude_tools": []
+            }
+    else:
+        # User provided action_config - merge with required fields to ensure completeness
+        if action_type == "gather":
+            action_config = {
+                "prompt": action_config.get("prompt", ""),
+                "approval_needed": action_config.get("approval_needed", False),
+                "claude_tools": action_config.get("claude_tools", []),
+                "sources": action_config.get("sources", {
+                    "mcp_servers": [],
+                    "connections": [],
+                    "tables": [],
+                    "entire_databases": []
+                })
+            }
+        elif action_type == "execute":
+            action_config = {
+                "prompt": action_config.get("prompt", ""),
+                "approval_needed": action_config.get("approval_needed", False),
+                "claude_tools": action_config.get("claude_tools", []),
+                "tools": action_config.get("tools", {
+                    "mcp_servers": [],
+                    "mcp_tools": [],
+                    "entire_servers": []
+                })
+            }
+        else:  # process type
+            action_config = {
+                "prompt": action_config.get("prompt", ""),
+                "approval_needed": action_config.get("approval_needed", False),
+                "claude_tools": action_config.get("claude_tools", [])
+            }
+
+    # Always provide valid output structure
+    if not output:  # Handles None and {}
         output = {
             "context": {"added": [], "removed": []},
             "payload": {"added": [], "removed": []}
