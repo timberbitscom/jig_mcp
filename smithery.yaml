@@ -1,0 +1,32 @@
+runtime: "container"
+
+startCommand:
+  type: "http"
+  configSchema:
+    type: "object"
+    required: ["JIG_RUNNER_SUPABASE_URL", "JIG_RUNNER_SERVICE_ROLE_KEY"]
+    properties:
+      JIG_RUNNER_SUPABASE_URL:
+        type: "string"
+        title: "Supabase URL"
+        description: "Supabase project URL (e.g., https://xxxxx.supabase.co)"
+      JIG_RUNNER_SERVICE_ROLE_KEY:
+        type: "string"
+        title: "Supabase Service Role Key"
+        description: "Supabase service role key for admin access (found in project settings > API)"
+      JIG_RUNNER_API_URL:
+        type: "string"
+        title: "Jig Runner API URL"
+        description: "Jig Runner API base URL"
+        default: "https://jig-runner.vercel.app"
+  exampleConfig:
+    JIG_RUNNER_SUPABASE_URL: "https://example.supabase.co"
+    JIG_RUNNER_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    JIG_RUNNER_API_URL: "https://jig-runner.vercel.app"
+
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+
+env:
+  PYTHONUNBUFFERED: "1"
