@@ -585,6 +585,183 @@ async def search_all(query: str, limit: int = 20) -> dict[str, Any]:
 
 
 # ============================================================
+# DSL IMPORT/EXPORT TOOLS
+# ============================================================
+
+@mcp.tool
+async def import_station_dsl(
+    yaml_content: str,
+    overwrite: bool = False
+) -> dict[str, Any]:
+    """
+    Import a station from DSL YAML format.
+
+    Allows defining stations in human-readable YAML format following the
+    documented DSL structure in docs/dsl/station.yaml.
+
+    Args:
+        yaml_content: YAML string matching DSL structure (version, name, slug, intent, action, etc.)
+        overwrite: If a station with this slug exists, overwrite it (default: False)
+
+    Returns:
+        Dictionary with created/updated station details including ID and slug
+
+    Example YAML:
+        version: "1.0"
+        name: Analyze Customer Data
+        slug: analyze-customer-data
+        intent: Analyze customer transaction patterns
+        action:
+          type: process
+          actor: agent
+          prompt: Analyze the customer data and identify trends
+    """
+    json_data = {"yaml": yaml_content, "overwrite": overwrite}
+    return await client.request("POST", "/api/stations/import", json_data=json_data)
+
+
+@mcp.tool
+async def export_station_dsl(
+    station_id: str,
+    format: str = "yaml"
+) -> dict[str, Any]:
+    """
+    Export a station to DSL YAML format.
+
+    Converts internal database format to human-readable YAML DSL.
+    Useful for version control, sharing, and documentation.
+
+    Args:
+        station_id: UUID of station to export
+        format: Output format - "yaml" (default) or "json"
+
+    Returns:
+        Dictionary with YAML content or full DSL structure
+    """
+    params = {"format": format}
+    return await client.request("GET", f"/api/stations/{station_id}/export", params=params)
+
+
+@mcp.tool
+async def import_workflow_dsl(
+    yaml_content: str,
+    overwrite: bool = False
+) -> dict[str, Any]:
+    """
+    Import a workflow from DSL YAML format.
+
+    Allows defining workflows with CEL conditions and station references
+    in YAML format. Validates that all referenced stations exist.
+
+    Args:
+        yaml_content: YAML string matching DSL structure (version, name, slug, intent, action.stations, etc.)
+        overwrite: If a workflow with this slug exists, overwrite it (default: False)
+
+    Returns:
+        Dictionary with created/updated workflow details including ReactFlow graph
+
+    Example YAML:
+        version: "1.0"
+        name: Customer Onboarding
+        slug: customer-onboarding
+        action:
+          config:
+            trigger: manual
+            type: linear
+          stations:
+            - name: verify-customer
+              id: 1
+              condition: null
+            - name: setup-account
+              id: 2
+              condition: "1"
+    """
+    json_data = {"yaml": yaml_content, "overwrite": overwrite}
+    return await client.request("POST", "/api/workflows/import", json_data=json_data)
+
+
+@mcp.tool
+async def export_workflow_dsl(
+    workflow_id: str,
+    format: str = "yaml"
+) -> dict[str, Any]:
+    """
+    Export a workflow to DSL YAML format.
+
+    Converts ReactFlow graph to DSL stations array with CEL conditions.
+
+    Args:
+        workflow_id: UUID of workflow to export
+        format: Output format - "yaml" (default) or "json"
+
+    Returns:
+        Dictionary with YAML content or full DSL structure
+    """
+    params = {"format": format}
+    return await client.request("GET", f"/api/workflows/{workflow_id}/export", params=params)
+
+
+@mcp.tool
+async def import_connection_dsl(
+    yaml_content: str,
+    overwrite: bool = False
+) -> dict[str, Any]:
+    """
+    Import a connection from DSL YAML format.
+
+    Allows defining MCP connections with stdio or http transport.
+    Environment variables should use placeholder syntax: ${VAR_NAME}
+
+    SECURITY: Validates commands to block dangerous operations.
+
+    Args:
+        yaml_content: YAML string matching DSL structure (version, name, slug, type, config, etc.)
+        overwrite: If a connection with this slug exists, overwrite it (default: False)
+
+    Returns:
+        Dictionary with created/updated connection details and security warnings
+
+    Example YAML (stdio):
+        version: "1.0"
+        name: Local MCP Server
+        slug: local-mcp
+        type: mcp
+        config:
+          type: stdio
+          command: npx
+          args: ["-y", "@modelcontextprotocol/server-name"]
+          env:
+            API_KEY: ${API_KEY}
+    """
+    json_data = {"yaml": yaml_content, "overwrite": overwrite}
+    return await client.request("POST", "/api/connections/import", json_data=json_data)
+
+
+@mcp.tool
+async def export_connection_dsl(
+    connection_id: str,
+    format: str = "yaml",
+    include_secrets: bool = False
+) -> dict[str, Any]:
+    """
+    Export a connection to DSL YAML format.
+
+    SECURITY: By default, masks sensitive environment variables using ${VAR_NAME} syntax.
+    Set include_secrets=true to export actual values (use with caution).
+
+    Args:
+        connection_id: UUID of connection to export
+        format: Output format - "yaml" (default) or "json"
+        include_secrets: Include actual environment variable values (default: False)
+
+    Returns:
+        Dictionary with YAML content (secrets masked unless include_secrets=true)
+    """
+    params = {"format": format, "include_secrets": str(include_secrets).lower()}
+    return await client.request("GET", f"/api/connections/{connection_id}/export", params=params)
+
+
+# ============================================================
 # SERVER STARTUP
 # ============================================================
 
