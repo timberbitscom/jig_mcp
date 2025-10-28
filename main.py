@@ -82,9 +82,9 @@ async def create_station(
     name: str,
     intent: str,
     action_type: str,
-    context: Optional[dict[str, Any]] = None,
-    action_config: Optional[dict[str, Any]] = None,
-    output: Optional[dict[str, Any]] = None,
+    action_config: dict[str, Any],
+    context: dict[str, Any] = {"keys": {}},
+    output: dict[str, Any] = {"context": {"added": [], "removed": []}, "payload": {"added": [], "removed": []}},
     is_active: bool = True
 ) -> dict[str, Any]:
     """
@@ -99,92 +99,65 @@ async def create_station(
         name: Human-readable station name (must be unique)
         intent: What this station does (used for discovery and decomposition)
         action_type: Type of action - "gather" (fetch data), "process" (transform), or "execute" (take action)
-        context: Input schema (optional - defaults to {"keys": {}})
-        action_config: Action configuration (optional - auto-populated based on action_type if omitted)
-        output: Output schema (optional - defaults to empty added/removed lists)
+        action_config: Action configuration with prompt and tools. Example: {"prompt": "your task description"}
+        context: Input schema - defaults to {"keys": {}} if not provided
+        output: Output schema - defaults to empty added/removed lists if not provided
         is_active: Whether station is active (default: True)
 
     Returns:
         Dictionary with created station data
 
-    Note:
-        If action_config is omitted, it will be auto-populated with the correct structure
-        for the action_type (gather needs 'sources', execute needs 'tools', process is minimal).
+    Example:
+        create_station(
+            name="Analyze Data",
+            intent="Analyze customer data and identify trends",
+            action_type="process",
+            action_config={"prompt": "Analyze the customer data and create a summary report"}
+        )
     """
-    # Always provide valid context structure
-    if not context:  # Handles None and {}
+    # Ensure valid context structure
+    if not context or not isinstance(context, dict):
         context = {"keys": {}}
 
-    # Build complete action_config based on action_type
-    # This ensures the structure matches what the database trigger expects
-    if not action_config:  # Handles None and {}
-        if action_type == "gather":
-            action_config = {
-                "prompt": "",
-                "approval_needed": False,
-                "claude_tools": [],
-                "sources": {
-                    "mcp_servers": [],
-                    "connections": [],
-                    "tables": [],
-                    "entire_databases": []
-                }
-            }
-        elif action_type == "execute":
-            action_config = {
-                "prompt": "",
-                "approval_needed": False,
-                "claude_tools": [],
-                "tools": {
-                    "mcp_servers": [],
-                    "mcp_tools": [],
-                    "entire_servers": []
-                }
-            }
-        else:  # process type
-            action_config = {
-                "prompt": "",
-                "approval_needed": False,
-                "claude_tools": []
-            }
-    else:
-        # User provided action_config - merge with required fields to ensure completeness
-        if action_type == "gather":
-            action_config = {
-                "prompt": action_config.get("prompt", ""),
-                "approval_needed": action_config.get("approval_needed", False),
-                "claude_tools": action_config.get("claude_tools", []),
-                "sources": action_config.get("sources", {
-                    "mcp_servers": [],
-                    "connections": [],
-                    "tables": [],
-                    "entire_databases": []
-                })
-            }
-        elif action_type == "execute":
-            action_config = {
-                "prompt": action_config.get("prompt", ""),
-                "approval_needed": action_config.get("approval_needed", False),
-                "claude_tools": action_config.get("claude_tools", []),
-                "tools": action_config.get("tools", {
-                    "mcp_servers": [],
-                    "mcp_tools": [],
-                    "entire_servers": []
-                })
-            }
-        else:  # process type
-            action_config = {
-                "prompt": action_config.get("prompt", ""),
-                "approval_needed": action_config.get("approval_needed", False),
-                "claude_tools": action_config.get("claude_tools", [])
-            }
-
-    # Always provide valid output structure
-    if not output:  # Handles None and {}
-        output = {
-            "context": {"added": [], "removed": []},
-            "payload": {"added": [], "removed": []}
+    # Ensure action_config has all required fields based on action_type
+    # Merge user-provided config with required structure
+    if action_type == "gather":
+        action_config = {
+            "prompt": action_config.get("prompt", ""),
+            "approval_needed": action_config.get("approval_needed", False),
+            "claude_tools": action_config.get("claude_tools", []),
+            "sources": action_config.get("sources", {
+                "mcp_servers": [],
+                "connections": [],
+                "tables": [],
+                "entire_databases": []
+            })
         }
+    elif action_type == "execute":
+        action_config = {
+            "prompt": action_config.get("prompt", ""),
+            "approval_needed": action_config.get("approval_needed", False),
+            "claude_tools": action_config.get("claude_tools", []),
+            "tools": action_config.get("tools", {
+                "mcp_servers": [],
+                "mcp_tools": [],
+                "entire_servers": []
+            })
+        }
+    else:  # process type
+        action_config = {
+            "prompt": action_config.get("prompt", ""),
+            "approval_needed": action_config.get("approval_needed", False),
+            "claude_tools": action_config.get("claude_tools", [])
+        }
+
+    # Ensure output has valid structure
+    if not isinstance(output, dict):
+        output = {}
+    output = {
+        "context": output.get("context", {"added": [], "removed": []}),
+        "payload": output.get("payload", {"added": [], "removed": []})
+    }
 
     data = {
         "name": name,
