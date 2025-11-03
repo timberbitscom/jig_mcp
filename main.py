@@ -30,6 +30,7 @@ async def list_stations(
     limit: int = 50,
     offset: int = 0,
     is_active: Optional[bool] = None,
+    include_archived: bool = False,
     action_type: Optional[str] = None,
     search: Optional[str] = None
 ) -> dict[str, Any]:
@@ -42,14 +43,15 @@ async def list_stations(
     Args:
         limit: Maximum number of stations to return (1-250, default: 50)
         offset: Number of stations to skip for pagination (default: 0)
-        is_active: Filter by active status
+        is_active: Filter by active status (true/false)
+        include_archived: Whether to include archived stations (default: false)
         action_type: Filter by action type (gather, process, or execute)
         search: Search in station name and intent
 
     Returns:
         Dictionary with success status, data array, and pagination info
     """
-    params = {"limit": limit, "offset": offset}
+    params = {"limit": limit, "offset": offset, "include_archived": include_archived}
     if is_active is not None:
         params["is_active"] = is_active
     if action_type:
@@ -81,27 +83,36 @@ async def get_station(id: str) -> dict[str, Any]:
 async def create_station(
     name: str,
     intent: str,
-    action_type: str,
-    action_config: dict[str, Any],
-    context: dict[str, Any] = {"keys": {}},
-    output: dict[str, Any] = {"context": {"added": [], "removed": []}, "payload": {"added": [], "removed": []}},
+    action: dict[str, Any],
+    context: Optional[dict[str, Any]] = None,
+    output: Optional[dict[str, Any]] = None,
+    slug: Optional[str] = None,
+    version: str = "1.0",
     is_active: bool = True
 ) -> dict[str, Any]:
     """
-    Create a new station (task template) in Jig Runner.
+    Create a new station (task template) in Jig Runner using DSL format.
 
     A station defines a reusable work unit with:
-    - context: what data it needs (keys structure)
-    - action_config: how it executes (prompt, tools, MCP connections)
-    - output: what data it produces (context/payload additions)
+    - intent: What the station does
+    - context: Input data requirements (data and artifacts keys)
+    - action: How it executes (type, actor, prompt, tools, connections)
+    - output: Output declaration (context data and artifacts)
 
     Args:
         name: Human-readable station name (must be unique)
         intent: What this station does (used for discovery and decomposition)
-        action_type: Type of action - "gather" (fetch data), "process" (transform), or "execute" (take action)
-        action_config: Action configuration with prompt and tools. Example: {"prompt": "your task description"}
-        context: Input schema - defaults to {"keys": {}} if not provided
-        output: Output schema - defaults to empty added/removed lists if not provided
+        action: Action configuration object with required fields:
+            - type: "gather" | "process" | "execute"
+            - actor: "agent" | "human"
+            - prompt: The task description/instructions
+            - tools: Optional list of tool names (e.g., ["web_search", "calculator"])
+            - connections: Optional list of MCP connection IDs
+            - approval_required: Optional boolean (default: false)
+        context: Optional input schema with data/artifacts keys structure
+        output: Optional output schema with context/artifacts keys structure
+        slug: Optional URL-friendly identifier (auto-generated if omitted)
+        version: DSL version (default: "1.0")
         is_active: Whether station is active (default: True)
 
     Returns:
@@ -109,65 +120,58 @@ async def create_station(
 
     Example:
         create_station(
-            name="Analyze Data",
-            intent="Analyze customer data and identify trends",
-            action_type="process",
-            action_config={"prompt": "Analyze the customer data and create a summary report"}
+            name="Analyze Customer Data",
+            intent="Analyze customer transaction data to identify patterns",
+            action={
+                "type": "process",
+                "actor": "agent",
+                "prompt": "Analyze the customer data and create a summary report",
+                "tools": ["data_analysis"],
+                "approval_required": False
+            },
+            context={
+                "data": {
+                    "keys": {
+                        "customer_id": {"name": "customer_id", "type": "string", "required": True}
+                    }
+                }
+            }
         )
     """
-    # Ensure valid context structure
-    if not context or not isinstance(context, dict):
-        context = {"keys": {}}
+    # Validate action has required fields
+    if not isinstance(action, dict):
+        raise ValueError("action must be a dictionary")
 
-    # Ensure action_config has all required fields based on action_type
-    # Merge user-provided config with required structure
-    if action_type == "gather":
-        action_config = {
-            "prompt": action_config.get("prompt", ""),
-            "approval_needed": action_config.get("approval_needed", False),
-            "claude_tools": action_config.get("claude_tools", []),
-            "sources": action_config.get("sources", {
-                "mcp_servers": [],
-                "connections": [],
-                "tables": [],
-                "entire_databases": []
-            })
-        }
-    elif action_type == "execute":
-        action_config = {
-            "prompt": action_config.get("prompt", ""),
-            "approval_needed": action_config.get("approval_needed", False),
-            "claude_tools": action_config.get("claude_tools", []),
-            "tools": action_config.get("tools", {
-                "mcp_servers": [],
-                "mcp_tools": [],
-                "entire_servers": []
-            })
-        }
-    else:  # process type
-        action_config = {
-            "prompt": action_config.get("prompt", ""),
-            "approval_needed": action_config.get("approval_needed", False),
-            "claude_tools": action_config.get("claude_tools", [])
-        }
+    required_action_fields = ["type", "actor", "prompt"]
+    missing_fields = [f for f in required_action_fields if f not in action]
+    if missing_fields:
+        raise ValueError(f"action must have fields: {', '.join(missing_fields)}")
 
-    # Ensure output has valid structure
-    if not isinstance(output, dict):
-        output = {}
-    output = {
-        "context": output.get("context", {"added": [], "removed": []}),
-        "payload": output.get("payload", {"added": [], "removed": []})
-    }
+    # Validate action type and actor
+    valid_types = ["gather", "process", "execute"]
+    valid_actors = ["agent", "human"]
 
+    if action["type"] not in valid_types:
+        raise ValueError(f"action.type must be one of: {', '.join(valid_types)}")
+
+    if action["actor"] not in valid_actors:
+        raise ValueError(f"action.actor must be one of: {', '.join(valid_actors)}")
+
+    # Build request data in DSL format
     data = {
+        "version": version,
         "name": name,
         "intent": intent,
-        "action_type": action_type,
-        "context": context,
-        "action_config": action_config,
-        "output": output,
+        "action": action,  # Pass through as-is (DSL format)
         "is_active": is_active
     }
+
+    if slug:
+        data["slug"] = slug
+    if context:
+        data["context"] = context
+    if output:
+        data["output"] = output
 
     return await client.request("POST", "/api/stations", json_data=data)
 
@@ -177,46 +181,84 @@ async def update_station(
     id: str,
     name: Optional[str] = None,
     intent: Optional[str] = None,
-    action_type: Optional[str] = None,
+    action: Optional[dict[str, Any]] = None,
     context: Optional[dict[str, Any]] = None,
-    action_config: Optional[dict[str, Any]] = None,
     output: Optional[dict[str, Any]] = None,
-    is_active: Optional[bool] = None
+    slug: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    archived: Optional[bool] = None
 ) -> dict[str, Any]:
     """
-    Update an existing station.
+    Update an existing station using DSL format.
 
-    You can modify name, intent, action type, schemas, configuration, or active status.
+    You can modify name, intent, action, schemas, slug, or status flags.
     Changes affect all future workflow runs using this station (existing runs unaffected).
 
     Args:
         id: Station UUID to update
         name: New station name
-        intent: Updated intent
-        action_type: Updated action type (gather, process, or execute)
-        context: Updated input schema
-        action_config: Updated configuration
-        output: Updated output schema
+        intent: Updated intent description
+        action: Updated action object (DSL format) with fields:
+            - type: "gather" | "process" | "execute"
+            - actor: "agent" | "human"
+            - prompt: Task description
+            - tools: Optional list of tool names
+            - connections: Optional list of connection IDs
+            - approval_required: Optional boolean
+        context: Updated input schema (data/artifacts keys structure)
+        output: Updated output schema (context/artifacts keys structure)
+        slug: Updated URL-friendly identifier
         is_active: Updated active status
+        archived: Updated archived status
 
     Returns:
         Dictionary with updated station data
+
+    Example:
+        update_station(
+            id="station-uuid",
+            action={
+                "type": "process",
+                "actor": "agent",
+                "prompt": "Updated task instructions",
+                "tools": ["new_tool"]
+            }
+        )
     """
     data = {}
+
     if name is not None:
         data["name"] = name
     if intent is not None:
         data["intent"] = intent
-    if action_type is not None:
-        data["action_type"] = action_type
+    if slug is not None:
+        data["slug"] = slug
     if context is not None:
         data["context"] = context
-    if action_config is not None:
-        data["action_config"] = action_config
     if output is not None:
         data["output"] = output
     if is_active is not None:
         data["is_active"] = is_active
+    if archived is not None:
+        data["archived"] = archived
+
+    # Validate action if provided
+    if action is not None:
+        if not isinstance(action, dict):
+            raise ValueError("action must be a dictionary")
+
+        # If action is provided, validate it has at least the type field
+        if "type" in action:
+            valid_types = ["gather", "process", "execute"]
+            if action["type"] not in valid_types:
+                raise ValueError(f"action.type must be one of: {', '.join(valid_types)}")
+
+        if "actor" in action:
+            valid_actors = ["agent", "human"]
+            if action["actor"] not in valid_actors:
+                raise ValueError(f"action.actor must be one of: {', '.join(valid_actors)}")
+
+        data["action"] = action
 
     return await client.request("PUT", f"/api/stations/{id}", json_data=data)
 
