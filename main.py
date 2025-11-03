@@ -351,26 +351,105 @@ async def get_workflow(id: str) -> dict[str, Any]:
 async def create_workflow(
     name: str,
     intent: str,
-    graph_json: dict[str, Any]
+    action: dict[str, Any],
+    slug: Optional[str] = None,
+    version: str = "1.0",
+    context: Optional[dict[str, Any]] = None,
+    output: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
     """
-    Create a new workflow in Jig Runner.
+    Create a new workflow in Jig Runner using DSL format.
 
-    A workflow defines a directed graph of stations that execute in order.
+    A workflow defines a directed graph of stations with execution logic.
 
     Args:
         name: Human-readable workflow name (must be unique)
         intent: What this workflow accomplishes
-        graph_json: ReactFlow graph structure with nodes (stations) and edges (flow)
+        action: Workflow action object (DSL format) with required fields:
+            - config: Configuration object with:
+                - trigger: "manual" | "schedule" | "event"
+                - type: "linear" | "parallel" | "conditional" | "hybrid"
+                - self-improving: Optional boolean
+                - webhook: Optional webhook URL (for event triggers)
+                - cron: Optional cron expression (for schedule triggers)
+                - timezone: Optional timezone (for schedule triggers)
+            - stations: Array of station references:
+                - name: Station slug
+                - id: Numeric ID for CEL references
+                - condition: CEL expression or null for start station
+        slug: Optional URL-friendly identifier (auto-generated if omitted)
+        version: DSL version (default: "1.0")
+        context: Optional input requirements (data/artifacts)
+        output: Optional output specification (data/artifacts)
 
     Returns:
         Dictionary with created workflow data
+
+    Example:
+        create_workflow(
+            name="Customer Onboarding",
+            intent="Onboard new customers through verification and setup",
+            action={
+                "config": {
+                    "trigger": "manual",
+                    "type": "linear"
+                },
+                "stations": [
+                    {"name": "verify-customer", "id": 1, "condition": None},
+                    {"name": "setup-account", "id": 2, "condition": "1"}
+                ]
+            }
+        )
     """
+    # Validate action has required fields
+    if not isinstance(action, dict):
+        raise ValueError("action must be a dictionary")
+
+    if "config" not in action or "stations" not in action:
+        raise ValueError("action must have 'config' and 'stations' fields")
+
+    # Validate config
+    config = action["config"]
+    if not isinstance(config, dict):
+        raise ValueError("action.config must be a dictionary")
+
+    if "trigger" not in config or "type" not in config:
+        raise ValueError("action.config must have 'trigger' and 'type' fields")
+
+    valid_triggers = ["manual", "schedule", "event"]
+    valid_types = ["linear", "parallel", "conditional", "hybrid"]
+
+    if config["trigger"] not in valid_triggers:
+        raise ValueError(f"action.config.trigger must be one of: {', '.join(valid_triggers)}")
+
+    if config["type"] not in valid_types:
+        raise ValueError(f"action.config.type must be one of: {', '.join(valid_types)}")
+
+    # Validate stations array
+    stations = action["stations"]
+    if not isinstance(stations, list) or len(stations) == 0:
+        raise ValueError("action.stations must be a non-empty array")
+
+    for i, station in enumerate(stations):
+        if not isinstance(station, dict):
+            raise ValueError(f"action.stations[{i}] must be a dictionary")
+        if "name" not in station or "id" not in station or "condition" not in station:
+            raise ValueError(f"action.stations[{i}] must have 'name', 'id', and 'condition' fields")
+
+    # Build request data in DSL format
     data = {
+        "version": version,
         "name": name,
         "intent": intent,
-        "graph_json": graph_json
+        "action": action
     }
+
+    if slug:
+        data["slug"] = slug
+    if context:
+        data["context"] = context
+    if output:
+        data["output"] = output
 
     return await client.request("POST", "/api/workflows", json_data=data)
 
@@ -380,29 +459,94 @@ async def update_workflow(
     id: str,
     name: Optional[str] = None,
     intent: Optional[str] = None,
-    graph_json: Optional[dict[str, Any]] = None
+    action: Optional[dict[str, Any]] = None,
+    slug: Optional[str] = None,
+    context: Optional[dict[str, Any]] = None,
+    output: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
     """
-    Update an existing workflow.
+    Update an existing workflow using DSL format.
 
-    You can modify the name, intent, or graph structure.
+    You can modify the name, intent, action configuration, or other fields.
 
     Args:
         id: Workflow UUID to update
         name: New workflow name
         intent: Updated intent
-        graph_json: Updated graph structure
+        action: Updated workflow action object (DSL format) with:
+            - config: Configuration with trigger, type, self-improving, etc.
+            - stations: Array of station references with name, id, condition
+        slug: Updated URL-friendly identifier
+        context: Updated input requirements
+        output: Updated output specification
 
     Returns:
         Dictionary with updated workflow data
+
+    Example:
+        update_workflow(
+            id="workflow-uuid",
+            action={
+                "config": {
+                    "trigger": "manual",
+                    "type": "linear",
+                    "self-improving": True
+                },
+                "stations": [
+                    {"name": "verify-customer", "id": 1, "condition": None},
+                    {"name": "setup-account", "id": 2, "condition": "1"},
+                    {"name": "send-welcome", "id": 3, "condition": "2"}
+                ]
+            }
+        )
     """
     data = {}
+
     if name is not None:
         data["name"] = name
     if intent is not None:
         data["intent"] = intent
-    if graph_json is not None:
-        data["graph_json"] = graph_json
+    if slug is not None:
+        data["slug"] = slug
+    if context is not None:
+        data["context"] = context
+    if output is not None:
+        data["output"] = output
+
+    # Validate action if provided
+    if action is not None:
+        if not isinstance(action, dict):
+            raise ValueError("action must be a dictionary")
+
+        # Validate config if present
+        if "config" in action:
+            config = action["config"]
+            if not isinstance(config, dict):
+                raise ValueError("action.config must be a dictionary")
+
+            if "trigger" in config:
+                valid_triggers = ["manual", "schedule", "event"]
+                if config["trigger"] not in valid_triggers:
+                    raise ValueError(f"action.config.trigger must be one of: {', '.join(valid_triggers)}")
+
+            if "type" in config:
+                valid_types = ["linear", "parallel", "conditional", "hybrid"]
+                if config["type"] not in valid_types:
+                    raise ValueError(f"action.config.type must be one of: {', '.join(valid_types)}")
+
+        # Validate stations if present
+        if "stations" in action:
+            stations = action["stations"]
+            if not isinstance(stations, list):
+                raise ValueError("action.stations must be an array")
+
+            for i, station in enumerate(stations):
+                if not isinstance(station, dict):
+                    raise ValueError(f"action.stations[{i}] must be a dictionary")
+                if "name" not in station or "id" not in station or "condition" not in station:
+                    raise ValueError(f"action.stations[{i}] must have 'name', 'id', and 'condition' fields")
+
+        data["action"] = action
 
     return await client.request("PUT", f"/api/workflows/{id}", json_data=data)
 
