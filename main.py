@@ -783,7 +783,7 @@ async def import_station_dsl(
     Import a station from DSL YAML format.
 
     Allows defining stations in human-readable YAML format following the
-    documented DSL structure in docs/dsl/station.yaml.
+    documented DSL structure. See examples/dsl/customer-analysis-station.yaml.
 
     Args:
         yaml_content: YAML string matching DSL structure (version, name, slug, intent, action, etc.)
@@ -792,15 +792,42 @@ async def import_station_dsl(
     Returns:
         Dictionary with created/updated station details including ID and slug
 
-    Example YAML:
+    COMPLETE Example YAML (showing all fields):
         version: "1.0"
         name: Analyze Customer Data
         slug: analyze-customer-data
         intent: Analyze customer transaction patterns
+
+        context:
+          data:
+            keys:
+              customer_id:
+                name: customer_id
+                type: string
+                required: true
+
         action:
           type: process
           actor: agent
           prompt: Analyze the customer data and identify trends
+          tools: []
+          connections: []
+          approval_required: false
+
+        output:
+          context:
+            data:
+              keys:
+                analysis_complete:
+                  name: analysis_complete
+                  type: boolean
+          artifacts:
+            keys:
+              report:
+                name: Analysis Report
+                filetype: markdown
+
+    CRITICAL: output.context requires 'data' wrapper, but output.artifacts does NOT!
     """
     json_data = {"yaml": yaml_content, "overwrite": overwrite}
     return await client.request("POST", "/api/stations/import", json_data=json_data)
@@ -846,21 +873,44 @@ async def import_workflow_dsl(
     Returns:
         Dictionary with created/updated workflow details including ReactFlow graph
 
-    Example YAML:
+    COMPLETE Example YAML (showing all fields):
         version: "1.0"
         name: Customer Onboarding
         slug: customer-onboarding
+        intent: End-to-end customer onboarding workflow
+
+        context:
+          data:
+            keys:
+              customer_email:
+                name: customer_email
+                type: string
+                required: true
+
         action:
           config:
             trigger: manual
             type: linear
+            self-improving: false
           stations:
-            - name: verify-customer
+            - name: verify-identity
               id: 1
               condition: null
-            - name: setup-account
+            - name: create-account
               id: 2
               condition: "1"
+            - name: send-welcome
+              id: 3
+              condition: "2"
+
+        output:
+          data:
+            keys:
+              onboarding_status:
+                name: onboarding_status
+                type: string
+
+    CRITICAL: Workflow output uses 'output.data.keys', NOT 'output.context.data.keys'!
     """
     json_data = {"yaml": yaml_content, "overwrite": overwrite}
     return await client.request("POST", "/api/workflows/import", json_data=json_data)
