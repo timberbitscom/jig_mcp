@@ -4,12 +4,13 @@ FastMCP server that exposes Jig Runner's workflow orchestration capabilities to 
 
 ## What is This?
 
-This MCP server provides 24 tools that allow AI assistants to interact with [Jig Runner](https://github.com/timberbitscom/jig_runner) - a database-centric workflow orchestration platform. Through these tools, AI agents can:
+This MCP server provides **24 tools** that allow AI assistants to interact with [Jig Runner](https://github.com/timberbitscom/jig_runner) - a database-centric workflow orchestration platform. Through these tools, AI agents can:
 
 - Create and manage **stations** (reusable task templates)
 - Build and execute **workflows** (directed graphs of stations)
 - Monitor **runs** (workflow executions)
 - Access **artifacts** and **context blocks** (immutable data snapshots)
+- Import/export workflows as **YAML DSL** for version control
 
 ## Architecture
 
@@ -20,7 +21,7 @@ Built with:
 
 The server runs as an HTTP service exposing the `/mcp` endpoint using the Streamable HTTP transport protocol.
 
-## Available Tools
+## Available Tools (24 Total)
 
 ### Stations (7 tools)
 - `list_stations` - List all task templates with filtering
@@ -53,6 +54,16 @@ The server runs as an HTTP service exposing the `/mcp` endpoint using the Stream
 
 ### Discovery (1 tool)
 - `search_all` - Universal search across all resources
+
+### DSL Import/Export (6 tools)
+- `import_station_dsl` - Import station from YAML DSL format
+- `export_station_dsl` - Export station to YAML DSL format
+- `import_workflow_dsl` - Import workflow from YAML with CEL conditions
+- `export_workflow_dsl` - Export workflow to YAML with station references
+- `import_connection_dsl` - Import MCP connection from YAML (with security validation)
+- `export_connection_dsl` - Export connection to YAML (secrets masked by default)
+
+The DSL tools enable version control of workflows by allowing import/export in human-readable YAML format. All DSL operations validate against the schema defined in the Jig Runner documentation.
 
 ## Configuration
 
