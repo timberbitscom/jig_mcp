@@ -1,8 +1,10 @@
 """
 Jig Runner MCP Server - FastMCP Implementation
 
-Provides 24 tools for managing workflows, stations, runs, and artifacts.
+Provides 38 tools for managing workflows, stations, runs, artifacts, and system diagnostics.
 Uses standard FastMCP pattern with HTTP transport for Smithery deployment.
+
+New tools enable conversational workflow management and autonomous debugging.
 """
 import os
 from typing import Optional, Any
@@ -678,6 +680,84 @@ async def get_run_artifacts(run_id: str, limit: int = 50) -> dict[str, Any]:
     return await client.request("GET", f"/api/runs/{run_id}/artifacts", params=params)
 
 
+@mcp.tool
+async def get_run(run_id: str) -> dict[str, Any]:
+    """
+    Get detailed information about a specific workflow run.
+
+    Returns complete run details including workflow info, tasks, progress metrics,
+    duration, and artifact/log counts.
+
+    Args:
+        run_id: Workflow run UUID
+
+    Returns:
+        Dictionary with run details including:
+        - Run status and timestamps
+        - Workflow information
+        - All tasks with station details
+        - Meta statistics (task counts by status, progress %, duration)
+        - Artifact and log counts
+    """
+    return await client.request("GET", f"/api/runs/{run_id}")
+
+
+@mcp.tool
+async def delete_run(run_id: str) -> dict[str, Any]:
+    """
+    Delete a workflow run and all associated data.
+
+    Deletes the run record and cascades to tasks, logs, context blocks, and artifacts.
+    Cannot delete a currently running workflow.
+
+    Args:
+        run_id: Workflow run UUID
+
+    Returns:
+        Dictionary with deletion status and counts of deleted items
+
+    Note:
+        This action cannot be undone. Running workflows cannot be deleted.
+    """
+    return await client.request("DELETE", f"/api/runs/{run_id}")
+
+
+@mcp.tool
+async def complete_approval(
+    approval_task_id: str,
+    approved: bool,
+    feedback: Optional[str] = None
+) -> dict[str, Any]:
+    """
+    Complete a human approval task.
+
+    Used when a workflow station requires human approval before proceeding.
+    Approves or rejects the task and updates the associated agent task status.
+
+    Args:
+        approval_task_id: UUID of the approval task
+        approved: Whether to approve (true) or reject (false) the task
+        feedback: Optional feedback/reason for the decision
+
+    Returns:
+        Dictionary with approval result and updated agent task ID
+
+    Example:
+        When a workflow errors due to missing OAuth token, an AI assistant could:
+        1. Check run logs with get_run_logs()
+        2. Identify missing OAuth token
+        3. Start OAuth flow with start_mcp_oauth()
+        4. Return authorization URL to user
+        5. After user completes OAuth, complete approval to resume workflow
+    """
+    json_data = {
+        "approvalTaskId": approval_task_id,
+        "approved": approved,
+        "feedback": feedback
+    }
+    return await client.request("POST", "/api/complete-approval", json_data=json_data)
+
+
 # ============================================================
 # ARTIFACTS TOOLS
 # ============================================================
@@ -698,6 +778,23 @@ async def list_artifacts(limit: int = 50, offset: int = 0) -> dict[str, Any]:
     """
     params = {"limit": limit, "offset": offset}
     return await client.request("GET", "/api/artifacts", params=params)
+
+
+@mcp.tool
+async def get_artifact(artifact_id: str) -> dict[str, Any]:
+    """
+    Get detailed information about a specific artifact.
+
+    Returns artifact metadata including storage type, file information,
+    and download/access details.
+
+    Args:
+        artifact_id: Artifact UUID
+
+    Returns:
+        Dictionary with artifact details and storage reference
+    """
+    return await client.request("GET", f"/api/artifacts/{artifact_id}")
 
 
 @mcp.tool
@@ -748,25 +845,77 @@ async def list_context_blocks(
 
 
 # ============================================================
-# DISCOVERY TOOL
+# DISCOVERY TOOLS
 # ============================================================
 
 @mcp.tool
-async def search_all(query: str, limit: int = 20) -> dict[str, Any]:
+async def search_all(query: str, limit_per_type: int = 10) -> dict[str, Any]:
     """
     Universal search across all Jig Runner resources.
 
-    Search stations, workflows, runs, and artifacts in one query.
+    Search stations, workflows, runs, artifacts, and context blocks in one query.
     Returns results grouped by resource type with relevance ranking.
 
     Args:
         query: Search query text
-        limit: Maximum results per resource type (default: 20)
+        limit_per_type: Maximum results per resource type (default: 10, max: 50)
 
     Returns:
-        Dictionary with results grouped by type (stations, workflows, runs, artifacts)
+        Dictionary with:
+        - data: Results grouped by type (stations, workflows, runs, artifacts, context_blocks)
+        - summary: Aggregated statistics and search metadata
     """
-    params = {"query": query, "limit": limit}
+    params = {"q": query, "limit_per_type": limit_per_type}
+    return await client.request("GET", "/api/discover", params=params)
+
+
+@mcp.tool
+async def global_discover(
+    query: str,
+    resource_type: Optional[str] = None,
+    limit_per_type: int = 10,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    status: Optional[str] = None
+) -> dict[str, Any]:
+    """
+    Advanced universal search with filtering across all Jig resources.
+
+    Searches stations, workflows, runs, artifacts, and context blocks with
+    optional filters for resource type, date range, and status.
+
+    Args:
+        query: Search query text (REQUIRED)
+        resource_type: Filter by type - 'station', 'workflow', 'run', 'artifact', 'context_block' (default: all)
+        limit_per_type: Maximum results per resource type (default: 10, max: 50)
+        date_from: Filter by creation date (ISO8601 format, e.g., '2025-01-01T00:00:00Z')
+        date_to: Filter by creation date (ISO8601 format)
+        status: Filter by status for runs/workflows (e.g., 'running', 'completed', 'failed')
+
+    Returns:
+        Dictionary with:
+        - data: Results grouped by type (only searched types included)
+        - summary: Statistics showing total_results, by_type counts, filters applied
+
+    Example:
+        # Search for failed workflow runs in the last week
+        global_discover(
+            query="customer onboarding",
+            resource_type="run",
+            status="failed",
+            date_from="2025-10-28T00:00:00Z"
+        )
+    """
+    params = {"q": query, "limit_per_type": limit_per_type}
+    if resource_type:
+        params["resource_type"] = resource_type
+    if date_from:
+        params["date_from"] = date_from
+    if date_to:
+        params["date_to"] = date_to
+    if status:
+        params["status"] = status
+
     return await client.request("GET", "/api/discover", params=params)
 
 
@@ -823,6 +972,87 @@ async def get_connection(id: str) -> dict[str, Any]:
         Dictionary with connection details
     """
     return await client.request("GET", f"/api/connections/{id}")
+
+
+@mcp.tool
+async def get_connection_schema(connection_id: str) -> dict[str, Any]:
+    """
+    Get the database schema from a Supabase connection.
+
+    Fetches table and column information from the connected database using
+    the Supabase OpenAPI endpoint.
+
+    Args:
+        connection_id: UUID of a Supabase connection
+
+    Returns:
+        Dictionary with:
+        - tables: Array of table information with columns
+        - Column details: name, data_type, is_nullable, column_default
+
+    Note:
+        Only works with Supabase connections (type='supabase').
+        Other connection types will return an error.
+    """
+    json_data = {"connectionId": connection_id}
+    return await client.request("POST", "/api/connections/schema", json_data=json_data)
+
+
+@mcp.tool
+async def discover_connection_tools(connection_id: str) -> dict[str, Any]:
+    """
+    Discover available tools from an MCP server connection.
+
+    Attempts to connect to the MCP server and fetch its tool/method list.
+    Tries multiple discovery methods (GET request, list_tools, tools/list, etc.).
+
+    Args:
+        connection_id: UUID of an MCP connection
+
+    Returns:
+        Dictionary with:
+        - toolCount: Number of tools discovered
+        - tools: Array of tool names
+        - message: Discovery method used
+
+    Note:
+        Only works with MCP connections (type='mcp').
+        Discovered tools are stored in the mcp_tools table.
+    """
+    json_data = {"connectionId": connection_id}
+    return await client.request("POST", "/api/connections/discover-tools", json_data=json_data)
+
+
+@mcp.tool
+async def start_mcp_oauth(connection_id: str) -> dict[str, Any]:
+    """
+    Initiate OAuth authentication flow for an HTTP MCP connection.
+
+    Returns the OAuth authorization URL that the user must visit to authenticate.
+    This is essential for MCP servers that require OAuth (like GitHub, Linear, etc.).
+
+    Args:
+        connection_id: UUID of an MCP connection with HTTP transport
+
+    Returns:
+        Dictionary with:
+        - requiresAuth: Whether OAuth is needed (boolean)
+        - authEndpoint: Authorization URL to visit (if requiresAuth=true)
+        - message: Status message
+
+    Example workflow for debugging OAuth errors:
+        1. Run workflow, it fails with OAuth error
+        2. Call get_run_logs(run_id) to confirm OAuth is missing
+        3. Call start_mcp_oauth(connection_id) to get auth URL
+        4. Return auth URL to user: "Please authorize at: {authEndpoint}"
+        5. After user authorizes, retry the workflow
+
+    Note:
+        Only works with HTTP MCP connections.
+        stdio connections don't support OAuth (they use local processes).
+    """
+    json_data = {"connectionId": connection_id}
+    return await client.request("POST", "/api/connections/mcp-oauth-start", json_data=json_data)
 
 
 # ============================================================
@@ -1050,6 +1280,60 @@ async def export_connection_dsl(
     """
     params = {"format": format, "include_secrets": str(include_secrets).lower()}
     return await client.request("GET", f"/api/connections/{connection_id}/export", params=params)
+
+
+# ============================================================
+# SYSTEM TOOLS
+# ============================================================
+
+@mcp.tool
+async def test_database_connection() -> dict[str, Any]:
+    """
+    Test the Supabase database connection and run diagnostic queries.
+
+    Runs multiple tests to verify database connectivity, table access,
+    and function availability. Useful for debugging connection issues.
+
+    Returns:
+        Dictionary with:
+        - status: Overall test status
+        - supabaseUrl: Configured Supabase URL
+        - hasServiceKey: Whether service role key is configured
+        - tests: Array of test results including:
+          - Count workflows test
+          - Count tasks test
+          - Fetch actors test
+          - Call function test (resolve_context_pointers)
+
+    Example usage for debugging:
+        When a workflow fails to start, call this to verify database connectivity
+        and identify configuration issues.
+    """
+    return await client.request("GET", "/api/test-db")
+
+
+@mcp.tool
+async def test_schema_validation() -> dict[str, Any]:
+    """
+    Test database schema validation and column visibility.
+
+    Verifies that the database schema is correctly deployed with DSL columns.
+    Tests insert operations with both old and new column formats.
+
+    Returns:
+        Dictionary with:
+        - success: Whether schema is valid
+        - visibleColumns: List of visible column names
+        - hasNewColumns: Check for DSL columns (context, action, output)
+        - hasOldColumns: Check for legacy columns (input_contract, action_spec, output_declaration)
+        - tests: Results from insert tests
+        - recommendation: Action to take if schema is invalid
+
+    Note:
+        This tool creates and immediately deletes test stations.
+        Used primarily after migrations or when schema issues are suspected.
+    """
+    return await client.request("GET", "/api/test-schema")
 
 
 # ============================================================
