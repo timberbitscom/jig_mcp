@@ -1,5 +1,7 @@
 # Jig Runner MCP Server
 
+[![smithery badge](https://smithery.ai/badge/@timberbitscom/jig_mcp)](https://smithery.ai/server/@timberbitscom/jig_mcp)
+
 FastMCP server that exposes Jig Runner's workflow orchestration capabilities to Claude and other AI assistants via the Model Context Protocol (MCP).
 
 ## What is This?
@@ -85,6 +87,14 @@ The server requires three environment variables (provided via Smithery):
 3. Deploy - Smithery will build and host the MCP server
 
 The `smithery.yaml` file configures container-based deployment with automatic schema validation.
+
+### Installing via Smithery
+
+To install Jig automatically via [Smithery](https://smithery.ai/server/@timberbitscom/jig_mcp):
+
+```bash
+npx -y @smithery/cli install @timberbitscom/jig_mcp
+```
 
 ### Local Development
 
