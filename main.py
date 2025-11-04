@@ -771,6 +771,61 @@ async def search_all(query: str, limit: int = 20) -> dict[str, Any]:
 
 
 # ============================================================
+# CONNECTIONS TOOLS
+# ============================================================
+
+@mcp.tool
+async def list_connections(
+    limit: int = 50,
+    offset: int = 0,
+    type: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    search: Optional[str] = None
+) -> dict[str, Any]:
+    """
+    List all connections (integrations and MCP servers) in Jig Runner.
+
+    Connections define external integrations like MCP servers, databases, APIs, etc.
+
+    Args:
+        limit: Maximum number of connections to return (1-100, default: 50)
+        offset: Number of connections to skip for pagination (default: 0)
+        type: Filter by connection type (mcp, supabase, postgres, mysql, mongodb, rest_api, graphql)
+        is_active: Filter by active status (true/false)
+        search: Search in connection name, slug, and description
+
+    Returns:
+        Dictionary with connections data and pagination info
+    """
+    params = {"limit": limit, "offset": offset}
+    if type:
+        params["type"] = type
+    if is_active is not None:
+        params["is_active"] = is_active
+    if search:
+        params["search"] = search
+
+    return await client.request("GET", "/api/connections", params=params)
+
+
+@mcp.tool
+async def get_connection(id: str) -> dict[str, Any]:
+    """
+    Get detailed information about a specific connection.
+
+    Returns complete connection configuration including transport settings,
+    environment variables, and OAuth configuration (secrets masked).
+
+    Args:
+        id: Connection UUID
+
+    Returns:
+        Dictionary with connection details
+    """
+    return await client.request("GET", f"/api/connections/{id}")
+
+
+# ============================================================
 # DSL IMPORT/EXPORT TOOLS
 # ============================================================
 
